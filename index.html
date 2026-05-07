@@ -510,10 +510,43 @@ let DEMO_MODE = false;
 // ═══════════════════════════════════════════════════════════
 //  GOOGLE APPS SCRIPT API — GitHub Pages uyumlu fetch katmanı
 // ═══════════════════════════════════════════════════════════
-const GAS_URL = "https://script.google.com/macros/s/AKfycbz7-74kDTHEfRZEyCSg3Z3Eux0SahTSEhe5GNjmj_OJwyWaSii_QbCcG1a30t82nxYh/exec";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbyNEH-LZ8WhpTLqYvusQ-FqtnmxWT7pFNxRGcdFwmeMOD6oYdmT2fzhYjfY5A4rgxiU/exec";
 
 function gasCall(action, params, onSuccess, onFailure) {
-  // JSONP ile CORS sorununu bypass et
+  var payload = JSON.stringify({ action: action, params: params || {} });
+
+  // Büyük veri (topluGuncelle, topluKonuEkle) → JSONP GET ile
+  // Küçük veri → fetch POST ile (no-cors olmaz, Apps Script CORS başlığı eklemez)
+  // Çözüm: Tüm çağrılar JSONP ile gider, büyük veri parçalanır
+
+  // topluGuncelle ve topluKonuEkle için sadece kritik değişiklikleri gönder
+  // Diğer tüm çağrılar JSONP GET ile
+  var cbName = "cb_" + Math.random().toString(36).slice(2);
+  var paramsStr = encodeURIComponent(JSON.stringify(params || {}));
+  var url = GAS_URL + "?action=" + encodeURIComponent(action) +
+            "&params=" + paramsStr +
+            "&callback=" + cbName;
+
+  // URL çok uzunsa (topluGuncelle) fetch ile dene, hata alırsa JSONP
+  if (url.length > 7000) {
+    fetch(GAS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: payload
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) { if (onSuccess) onSuccess(data); })
+    .catch(function() {
+      // POST başarısız olursa JSONP dene (veri kesilebilir)
+      gasCallJSONP(action, params, onSuccess, onFailure);
+    });
+    return;
+  }
+
+  gasCallJSONP(action, params, onSuccess, onFailure);
+}
+
+function gasCallJSONP(action, params, onSuccess, onFailure) {
   var cbName = "cb_" + Math.random().toString(36).slice(2);
   var url = GAS_URL + "?action=" + encodeURIComponent(action) +
             "&params=" + encodeURIComponent(JSON.stringify(params || {})) +
@@ -522,7 +555,7 @@ function gasCall(action, params, onSuccess, onFailure) {
   var script = document.createElement("script");
   var timer = setTimeout(function() {
     cleanup();
-    if (onFailure) onFailure(new Error("Zaman aşımı"));
+    if (onFailure) onFailure(new Error("Zaman aşımı (15s)"));
   }, 15000);
 
   function cleanup() {
@@ -538,7 +571,7 @@ function gasCall(action, params, onSuccess, onFailure) {
 
   script.onerror = function() {
     cleanup();
-    if (onFailure) onFailure(new Error("Script yüklenemedi"));
+    if (onFailure) onFailure(new Error("Bağlantı hatası"));
   };
 
   script.src = url;
