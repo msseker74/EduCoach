@@ -507,6 +507,21 @@ let COACH_DATA = { id: "coach1", role: "koc", ad: KOC_AD, kullaniciAdi: KOC_KULL
 let loginRole = "koc";
 let chartInst = {};
 let DEMO_MODE = false;
+// ═══════════════════════════════════════════════════════════
+//  GOOGLE APPS SCRIPT API — GitHub Pages uyumlu fetch katmanı
+// ═══════════════════════════════════════════════════════════
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwvfq69Vnv4Hi2pqBsLG65P5mPzPe1OgApU4aO0mHbErlMNN1AwHEZoChYjsAOpqEqJ/exec";
+
+function gasCall(action, params, onSuccess, onFailure) {
+  const url = GAS_URL + "?action=" + encodeURIComponent(action) +
+              "&params=" + encodeURIComponent(JSON.stringify(params || {}));
+  fetch(url, { method: "GET", mode: "cors" })
+    .then(function(r) { return r.json(); })
+    .then(function(data) { if (onSuccess) onSuccess(data); })
+    .catch(function(e) { if (onFailure) onFailure(e); });
+}
+
+
 
 // Sayfa değişkenleri
 let ogrPlanOffset = 0;
@@ -567,10 +582,9 @@ function konularTemizleVeYukle() {
     KAYNAKLAR.dersler = {};
     
     // 2. Sheets'teki konu satırlarını temizle, sonra CSV yükle
-    if (!DEMO_MODE && typeof google !== "undefined" && google.script) {
+    if (!DEMO_MODE) {
       syncStart();
-      google.script.run
-        .withSuccessHandler(function(result) {
+      gasCall("konulariTemizle", {}, function(result) {
           syncEnd();
           if (result && result.success) {
             toast("✅ Konular silindi. Şimdi CSV seçin...");
@@ -578,12 +592,10 @@ function konularTemizleVeYukle() {
           } else {
             toast("❌ " + ((result && result.error) || "Silme hatası"), true);
           }
-        })
-        .withFailureHandler(function(e) {
+        }, function(e) {
           syncEnd();
           toast("❌ Bağlantı hatası: " + e.message, true);
-        })
-        .konulariTemizle();
+        });
     } else {
       // Demo modda sadece yerel temizle ve CSV yükle
       toast("✅ Demo mod: Konular temizlendi. Şimdi CSV seçin...");
@@ -691,17 +703,13 @@ function konuListesiYukle() {
       console.log(ozetMesaj);
       
       // ÖNCE Google Sheets'e kaydet (backend)
-      if (!DEMO_MODE && typeof google !== "undefined" && google.script) {
+      if (!DEMO_MODE) {
         syncStart();
         
-        google.script.run
-          .withSuccessHandler(function(result) {
+        gasCall("topluKonuEkle", konular, function(result) {
             syncEnd();
-            
-            if (result.success) {
-              // Başarılı olursa, yerel KAYNAKLAR'ı da güncelle
+            if (result && result.success) {
               if (!KAYNAKLAR.dersler) KAYNAKLAR.dersler = {};
-              
               Object.keys(konular).forEach(ders => {
                 if (!KAYNAKLAR.dersler[ders]) KAYNAKLAR.dersler[ders] = [];
                 konular[ders].forEach(konu => {
@@ -711,45 +719,18 @@ function konuListesiYukle() {
                 });
                 KAYNAKLAR.dersler[ders].sort();
               });
-              
-              // Detaylı toast mesajı
               let detayMesaj = `✅ ${result.eklenen} yeni konu eklendi`;
-              if (result.guncellenen > 0) {
-                detayMesaj += `, ${result.guncellenen} konu zaten mevcuttu`;
-              }
+              if (result.guncellenen > 0) detayMesaj += `, ${result.guncellenen} konu zaten mevcuttu`;
               toast(detayMesaj);
-              
-              // Konsola detaylı bilgi
-              console.log(`📋 Google Sheets sonucu: ${result.eklenen} eklenen, ${result.guncellenen} mevcut`);
-              
-              // Kaynaklar sekmesini yenile
               setTab("kaynaklar");
             } else {
-              toast("❌ " + (result.error || "Kaydetme hatası"), true);
+              toast("❌ " + ((result && result.error) || "Kaydetme hatası"), true);
             }
-          })
-          .withFailureHandler(function(e) {
+          }, function(e) {
             syncEnd();
             toast("❌ Bağlantı hatası: " + e.message, true);
-            
-            // Hata durumunda yerel KAYNAKLAR'a ekle (yedek)
-            if (!KAYNAKLAR.dersler) KAYNAKLAR.dersler = {};
-            
-            let eklenenToplam = 0;
-            Object.keys(konular).forEach(ders => {
-              if (!KAYNAKLAR.dersler[ders]) KAYNAKLAR.dersler[ders] = [];
-              konular[ders].forEach(konu => {
-                if (!KAYNAKLAR.dersler[ders].includes(konu)) {
-                  KAYNAKLAR.dersler[ders].push(konu);
-                  eklenenToplam++;
-                }
-              });
-            });
-            
-            toast(`⚠️ Bağlantı hatası, ${eklenenToplam} konu yerel olarak kaydedildi`, true);
             setTab("kaynaklar");
-          })
-          .topluKonuEkle(konular); // Backend'deki topluKonuEkle fonksiyonunu çağır
+          });
           
       } else {
         // Demo modunda veya bağlantı yoksa yerel KAYNAKLAR'a ekle
@@ -798,45 +779,40 @@ document.addEventListener('click', function(e) {
 }, {passive:true});
 
 window.onload = function() {
-  if (typeof google !== "undefined" && google.script && google.script.run) {
-    google.script.run
-      .withSuccessHandler(function(r) {
-        if (!r) {
-          demoMod();
-          return;
-        }
-        DB = r;
-        if (r.odevler) DB.odevler = r.odevler.map(parseOdev);
-        if (r.sablonlar && r.sablonlar.length > 0) {
-          SABLONLAR = r.sablonlar.map(s => ({ ...s, verilen: Number(s.verilen) || 20 }));
-        }
-        if (r.kaynaklar) KAYNAKLAR = r.kaynaklar;
-        if (r.sinavlar) DB.sinavlar = r.sinavlar;
-        if (r.gunluk) DB.gunluk = r.gunluk;
-        if (r.ayarlar && r.ayarlar.ad) {
-          COACH_DATA = { ...COACH_DATA, 
-            ad: r.ayarlar.ad,
-            kullaniciAdi: r.ayarlar.kullaniciAdi || COACH_DATA.kullaniciAdi,
-            sifre: r.ayarlar.sifre || COACH_DATA.sifre
-          };
-        }
-        
-        if (SESSION) {
-          showApp();
-          otomatikSenkronizasyonuBaslat();
-        } else {
-          showScreen("login");
-        }
-      })
-      .withFailureHandler(function(e) {
-        document.getElementById("loadMsg").innerHTML = 
-          '<span style="color:#f87171">Bağlantı hatası: ' + e.message + '</span><br>' +
-          '<button class="btn btn-primary" onclick="demoMod()" style="margin-top:12px">🔧 Demo Modda Aç</button>';
-      })
-      .getData();
-  } else {
-    demoMod();
-  }
+  syncStart();
+  gasCall("getData", {}, function(r) {
+    syncEnd();
+    if (!r) {
+      demoMod();
+      return;
+    }
+    DB = r;
+    if (r.odevler) DB.odevler = r.odevler.map(parseOdev);
+    if (r.sablonlar && r.sablonlar.length > 0) {
+      SABLONLAR = r.sablonlar.map(s => ({ ...s, verilen: Number(s.verilen) || 20 }));
+    }
+    if (r.kaynaklar) KAYNAKLAR = r.kaynaklar;
+    if (r.sinavlar) DB.sinavlar = r.sinavlar;
+    if (r.gunluk) DB.gunluk = r.gunluk;
+    if (r.ayarlar && r.ayarlar.ad) {
+      COACH_DATA = { ...COACH_DATA,
+        ad: r.ayarlar.ad,
+        kullaniciAdi: r.ayarlar.kullaniciAdi || COACH_DATA.kullaniciAdi,
+        sifre: r.ayarlar.sifre || COACH_DATA.sifre
+      };
+    }
+    if (SESSION) {
+      showApp();
+      otomatikSenkronizasyonuBaslat();
+    } else {
+      showScreen("login");
+    }
+  }, function(e) {
+    syncEnd();
+    document.getElementById("loadMsg").innerHTML =
+      '<span style="color:#f87171">Bağlantı hatası: ' + e.message + '</span><br>' +
+      '<button class="btn btn-primary" onclick="demoMod()" style="margin-top:12px">🔧 Demo Modda Aç</button>';
+  });
 };
 
 function parseOdev(a) {
@@ -1008,8 +984,7 @@ function yenile() {
   }
   if (typeof google === "undefined") return;
   
-  google.script.run
-    .withSuccessHandler(function(r) {
+  gasCall("getData", {}, function(r) {
       DB = r;
       DB.odevler = DB.odevler.map(parseOdev);
       if (r.ayarlar && r.ayarlar.ad) {
@@ -1035,9 +1010,7 @@ function yenile() {
       else setTabOgr(aktifTabOgr || "odevlerim");
       
       toast("✅ Veriler güncellendi");
-    })
-    .withFailureHandler(e => toast("❌ " + e.message, true))
-    .getData();
+    }, function(e) { toast("❌ " + e.message, true); });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1095,28 +1068,11 @@ function verileriSenkronizeEt(showToastMsg = true) {
     return;
   }
   
-  if (typeof google === "undefined" || !google.script) {
-    if (showToastMsg) toast("❌ Google Apps Script bağlantısı yok", true);
-    return;
-  }
+
   
   syncStart();
   
-  google.script.run
-    .withSuccessHandler(function(result) {
-      syncEnd();
-      if (result.success) {
-        toast("✅ " + result.mesaj);
-        yenile(); // Verileri Sheets'ten tekrar çek ve ekranı tazele
-      } else {
-        toast("❌ " + result.error, true);
-      }
-    })
-    .withFailureHandler(function(e) {
-      syncEnd();
-      toast("❌ Kayıt başarısız: " + e.message, true); 
-    })
-    .topluGuncelle({
+  gasCall("topluGuncelle", {
       ogrenciler: DB.ogrenciler,
       odevler: DB.odevler,
       hedefler: DB.hedefler,
@@ -1124,6 +1080,17 @@ function verileriSenkronizeEt(showToastMsg = true) {
       gunluk: DB.gunluk || [],
       kaynaklar: KAYNAKLAR,
       sablonlar: SABLONLAR
+    }, function(result) {
+      syncEnd();
+      if (result && result.success) {
+        if (showToastMsg) toast("✅ " + result.mesaj);
+        yenile();
+      } else {
+        toast("❌ " + (result ? result.error : "Kayıt hatası"), true);
+      }
+    }, function(e) {
+      syncEnd();
+      toast("❌ Kayıt başarısız: " + e.message, true);
     });
 }
 
@@ -1137,10 +1104,8 @@ function otomatikSenkronizasyonuBaslat() {
 
   // Koç: 45 sn'de bir Sheets'ten veri çek — öğrenci teslimlerini otomatik göster
   setInterval(function() {
-    if (SESSION && SESSION.role === "koc" && !DEMO_MODE &&
-        typeof google !== "undefined" && google.script) {
-      google.script.run
-        .withSuccessHandler(function(r) {
+    if (SESSION && SESSION.role === "koc" && !DEMO_MODE) {
+      gasCall("getData", {}, function(r) {
           if (!r) return;
           var eskiSubmitted = DB.odevler.filter(function(o) { return o.durum === "submitted"; }).length;
           DB = r;
@@ -1156,9 +1121,7 @@ function otomatikSenkronizasyonuBaslat() {
             toast("📬 " + (yeniSubmitted - eskiSubmitted) + " yeni ödev teslimi!");
             if (aktifTab === "dashboard" || aktifTab === "odevler") setTab(aktifTab);
           }
-        })
-        .withFailureHandler(function() {})
-        .getData();
+        }, function() {});
     }
   }, 45 * 1000);
 }
@@ -1170,19 +1133,15 @@ window.addEventListener('beforeunload', function() {
 });
 function ogrenciTekOdevSenkronize(odevObj) {
   if (DEMO_MODE || !SESSION || SESSION.role !== "ogr") return;
-  if (typeof google === "undefined" || !google.script) return;
   syncStart();
-  google.script.run
-    .withSuccessHandler(function(result) {
-      syncEnd();
-      if (result.success) toast("\u2705 " + result.mesaj);
-      else toast("\u274c " + result.error, true);
-    })
-    .withFailureHandler(function(e) {
-      syncEnd();
-      toast("\u274c Kayit basarisiz: " + e.message, true);
-    })
-    .ogrenciOdevGuncelle(odevObj);
+  gasCall("ogrenciOdevGuncelle", odevObj, function(result) {
+    syncEnd();
+    if (result && result.success) toast("✅ " + result.mesaj);
+    else toast("❌ " + (result ? result.error : "Hata"), true);
+  }, function(e) {
+    syncEnd();
+    toast("❌ Kayıt başarısız: " + e.message, true);
+  });
 }
 // ═══════════════════════════════════════════════════════════
 //  YARDIMCI FONKSİYONLAR
@@ -3405,17 +3364,14 @@ function odevKaydet(id) {
     DB.odevler.push(parseOdev(data));
   }
 
-  if (!DEMO_MODE && typeof google !== "undefined") {
-    google.script.run
-      .withSuccessHandler((result) => {
-        if (result.success) {
-          toast("✅ " + (result.mesaj || "Ödev kaydedildi!"));
-        } else {
-          toast("❌ " + (result.error || "Kayıt hatası"), true);
-        }
-      })
-      .withFailureHandler(() => toast("❌ Bağlantı hatası", true))
-      .hizliOdevKaydet(data);
+  if (!DEMO_MODE) {
+    gasCall("hizliOdevKaydet", data, function(result) {
+      if (result && result.success) {
+        toast("✅ " + (result.mesaj || "Ödev kaydedildi!"));
+      } else {
+        toast("❌ " + ((result && result.error) || "Kayıt hatası"), true);
+      }
+    }, function() { toast("❌ Bağlantı hatası", true); });
   } else {
     toast("✅ Ödev başarıyla kaydedildi!");
   }
@@ -3439,12 +3395,9 @@ function odevSil(id) {
     
     // 2. Sheets'ten sil
     if (!DEMO_MODE) {
-      google.script.run
-        .withSuccessHandler((result) => {
-          if (!result.success) toast("Hata: " + result.error, true);
-        })
-        .withFailureHandler(e => toast("Hata: Silme yansımadı!", true))
-        .hizliSatirSil("Odevler", id);
+      gasCall("hizliSatirSil", { sayfaAdi: "Odevler", id: id }, function(result) {
+        if (!result || !result.success) toast("Hata: " + (result ? result.error : "Bilinmeyen"), true);
+      }, function() { toast("Hata: Silme yansımadı!", true); });
     }
   });
 }
@@ -3559,16 +3512,13 @@ function ogrenciKaydet(id) {
   }
 
   if (!DEMO_MODE) {
-    google.script.run
-      .withSuccessHandler((result) => {
-        if (result.success) {
-          toast("✅ " + (result.mesaj || "Öğrenci kaydedildi!"));
-        } else {
-          toast("❌ " + (result.error || "Kayıt hatası"), true);
-        }
-      })
-      .withFailureHandler(() => toast("❌ Bağlantı hatası", true))
-      .hizliOgrenciKaydet(data);
+    gasCall("hizliOgrenciKaydet", data, function(result) {
+      if (result && result.success) {
+        toast("✅ " + (result.mesaj || "Öğrenci kaydedildi!"));
+      } else {
+        toast("❌ " + ((result && result.error) || "Kayıt hatası"), true);
+      }
+    }, function() { toast("❌ Bağlantı hatası", true); });
   } else {
     toast("✅ Öğrenci başarıyla kaydedildi!");
   }
@@ -3656,16 +3606,13 @@ function hedefKaydet(id) {
   }
   
   if (!DEMO_MODE) {
-    google.script.run
-      .withSuccessHandler((result) => {
-        if (result.success) {
-          toast("✅ " + (result.mesaj || "Hedef kaydedildi!"));
-        } else {
-          toast("❌ " + (result.error || "Kayıt hatası"), true);
-        }
-      })
-      .withFailureHandler(() => toast("❌ Bağlantı hatası", true))
-      .hizliHedefKaydet(data);
+    gasCall("hizliHedefKaydet", data, function(result) {
+      if (result && result.success) {
+        toast("✅ " + (result.mesaj || "Hedef kaydedildi!"));
+      } else {
+        toast("❌ " + ((result && result.error) || "Kayıt hatası"), true);
+      }
+    }, function() { toast("❌ Bağlantı hatası", true); });
   } else {
     toast("✅ Hedef başarıyla kaydedildi!");
   }
@@ -3680,12 +3627,9 @@ function hedefSilOnayla(id) {
     setTab("plan");
     toast("🗑 Hedef silindi");
 
-    google.script.run
-      .withSuccessHandler((result) => {
-        if (!result.success) toast("Hata: " + result.error, true);
-      })
-      .withFailureHandler(e => toast("Hata: Silme Sheets'e yansımadı!", true))
-      .hizliSatirSil("Hedefler", id);
+    gasCall("hizliSatirSil", { sayfaAdi: "Hedefler", id: id }, function(result) {
+      if (!result || !result.success) toast("Hata: " + (result ? result.error : "Bilinmeyen"), true);
+    }, function() { toast("Hata: Silme Sheets'e yansımadı!", true); });
   });
 }
 
@@ -3872,25 +3816,22 @@ function ogrOdevTeslimEt(id) {
   setTabOgr("odevlerim");
   toast(isEtkinlik ? "🎨 Etkinlik teslim edildi!" : "📤 Ödev teslim edildi!");
   // Öğrenci tesliminde Sheets'e doğrudan kaydet
-  if (!DEMO_MODE && typeof google !== "undefined" && google.script) {
+  if (!DEMO_MODE) {
     syncStart();
-    google.script.run
-      .withSuccessHandler(function(result) {
-        syncEnd();
-        if (result && result.success) {
-          console.log("✅ Ödev teslimi Sheets'e kaydedildi: " + id);
-          toast("✅ Ödev teslim edildi ve kaydedildi!");
-        } else {
-          console.error("❌ Sheets kayıt hatası:", result ? result.error : "Bilinmeyen");
-          toast("⚠️ Sheets kaydı başarısız: " + (result ? result.error : "Bilinmeyen hata"), true);
-        }
-      })
-      .withFailureHandler(function(e) {
-        syncEnd();
-        console.error("❌ Sheets bağlantı hatası:", e.message);
-        toast("⚠️ Sheets bağlantı hatası: " + e.message, true);
-      })
-      .ogrenciOdevGuncelle(updated);
+    gasCall("ogrenciOdevGuncelle", updated, function(result) {
+      syncEnd();
+      if (result && result.success) {
+        console.log("✅ Ödev teslimi Sheets'e kaydedildi: " + id);
+        toast("✅ Ödev teslim edildi ve kaydedildi!");
+      } else {
+        console.error("❌ Sheets kayıt hatası:", result ? result.error : "Bilinmeyen");
+        toast("⚠️ Sheets kaydı başarısız: " + (result ? result.error : "Bilinmeyen hata"), true);
+      }
+    }, function(e) {
+      syncEnd();
+      console.error("❌ Sheets bağlantı hatası:", e.message);
+      toast("⚠️ Sheets bağlantı hatası: " + e.message, true);
+    });
   }
 }
 
@@ -3903,19 +3844,14 @@ function ogrTeslimGeriAl(id) {
     setTabOgr("odevlerim");
     toast("↩️ Teslim geri alındı");
     // Öğrenci geri alımında Sheets'e doğrudan kaydet
-    if (!DEMO_MODE && typeof google !== "undefined" && google.script) {
-      google.script.run
-        .withSuccessHandler(function(result) {
-          if (result && result.success) {
-            console.log("✅ Teslim geri alımı Sheets'e kaydedildi: " + id);
-          } else {
-            toast("⚠️ Sheets kaydı başarısız: " + (result ? result.error : "Bilinmeyen hata"), true);
-          }
-        })
-        .withFailureHandler(function(e) {
-          toast("⚠️ Sheets bağlantı hatası: " + e.message, true);
-        })
-        .ogrenciOdevGuncelle(updated);
+    if (!DEMO_MODE) {
+      gasCall("ogrenciOdevGuncelle", updated, function(result) {
+        if (!result || !result.success) {
+          toast("⚠️ Sheets kaydı başarısız: " + (result ? result.error : "Bilinmeyen hata"), true);
+        }
+      }, function(e) {
+        toast("⚠️ Sheets bağlantı hatası: " + e.message, true);
+      });
     }
   });
 }
@@ -4043,18 +3979,15 @@ function sinavKaydet() {
   };
   
   if (!DEMO_MODE) {
-    google.script.run
-      .withSuccessHandler((result) => {
-        if (result.success) {
-          toast("✅ " + (result.mesaj || "Sınav kaydedildi!"));
-          yenile();
-          modalKapat();
-        } else {
-          toast("❌ " + (result.error || "Kayıt hatası"), true);
-        }
-      })
-      .withFailureHandler(() => toast("❌ Bağlantı hatası", true))
-      .hizliSinavKaydet(sinavVerisi);
+    gasCall("hizliSinavKaydet", sinavVerisi, function(result) {
+      if (result && result.success) {
+        toast("✅ " + (result.mesaj || "Sınav kaydedildi!"));
+        yenile();
+        modalKapat();
+      } else {
+        toast("❌ " + ((result && result.error) || "Kayıt hatası"), true);
+      }
+    }, function() { toast("❌ Bağlantı hatası", true); });
   } else {
     DB.sinavlar.push(sinavVerisi);
     toast("✅ Sınav başarıyla kaydedildi!");
@@ -4279,12 +4212,9 @@ function kaynagiSil(tip, id) {
       toast("🗑 Kitap silindi");
       setTab("kaynaklar");
       
-      google.script.run
-        .withSuccessHandler((result) => {
-          if (!result.success) toast("Hata: " + result.error, true);
-        })
-        .withFailureHandler(e => toast("Hata: Silme işlemi Sheets'e yansımadı!", true))
-        .hizliSatirSil("Kaynaklar", id);
+      gasCall("hizliSatirSil", { sayfaAdi: "Kaynaklar", id: id }, function(result) {
+        if (!result || !result.success) toast("Hata: " + (result ? result.error : "Bilinmeyen"), true);
+      }, function() { toast("Hata: Silme işlemi Sheets'e yansımadı!", true); });
     });
   }
 }
@@ -4308,16 +4238,13 @@ function kaynagiKaydet() {
   KAYNAKLAR.kitaplar.push(yeniKitap);
 
   if (!DEMO_MODE) {
-    google.script.run
-      .withSuccessHandler((result) => {
-        if (result.success) {
-          toast("✅ " + (result.mesaj || "Kitap eklendi!"));
-        } else {
-          toast("❌ " + (result.error || "Kayıt hatası"), true);
-        }
-      })
-      .withFailureHandler(() => toast("❌ Bağlantı hatası", true))
-      .hizliKitapEkle(yeniKitap);
+    gasCall("hizliKitapEkle", yeniKitap, function(result) {
+      if (result && result.success) {
+        toast("✅ " + (result.mesaj || "Kitap eklendi!"));
+      } else {
+        toast("❌ " + ((result && result.error) || "Kayıt hatası"), true);
+      }
+    }, function() { toast("❌ Bağlantı hatası", true); });
   } else {
     toast("✅ Kitap başarıyla eklendi!");
   }
@@ -4987,19 +4914,16 @@ function gunlukDegerKaydet() {
   }
 
   // Sheets'e kaydet
-  if (!DEMO_MODE && typeof google !== 'undefined' && google.script) {
+  if (!DEMO_MODE) {
     syncStart();
-    google.script.run
-      .withSuccessHandler(function(result) {
-        syncEnd();
-        if (result && result.success) toast('✅ ' + result.mesaj);
-        else toast('❌ ' + (result ? result.error : 'Hata'), true);
-      })
-      .withFailureHandler(function(e) {
-        syncEnd();
-        toast('⚠️ Bağlantı hatası: ' + e.message, true);
-      })
-      .hizliGunlukKaydet(data);
+    gasCall("hizliGunlukKaydet", data, function(result) {
+      syncEnd();
+      if (result && result.success) toast('✅ ' + result.mesaj);
+      else toast('❌ ' + (result ? result.error : 'Hata'), true);
+    }, function(e) {
+      syncEnd();
+      toast('⚠️ Bağlantı hatası: ' + e.message, true);
+    });
   } else {
     toast('✅ Günlük değerlendirme kaydedildi!');
   }
