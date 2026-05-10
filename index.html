@@ -1057,8 +1057,8 @@ function yenile() {
     toast("✅ Demo modda yenileme yok");
     return;
   }
-  if (typeof google === "undefined") return;
-  
+  // NOT: "typeof google === undefined" kontrolü kaldırıldı — GitHub Pages'de google objesi yok
+  syncStart();
   gasCall("getData", {}, function(r) {
       DB = r;
       DB.odevler = DB.odevler.map(parseOdev);
@@ -1084,8 +1084,9 @@ function yenile() {
       if (SESSION.role === "koc") setTab(aktifTab || "dashboard");
       else setTabOgr(aktifTabOgr || "odevlerim");
       
+      syncEnd();
       toast("✅ Veriler güncellendi");
-    }, function(e) { toast("❌ " + e.message, true); });
+    }, function(e) { syncEnd(); toast("❌ " + e.message, true); });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1136,7 +1137,11 @@ function destroyChart(id) {
 //  SENKRONİZASYON
 // ═══════════════════════════════════════════════════════════
 function verileriSenkronizeEt(showToastMsg = true) {
-  // Sadece koç senkronize edebilir — öğrenci girişinde veri ezilmesin
+  // Öğrenci girişinde toplu senkronizasyon yerine sadece veri çek (veri ezilmesin)
+  if (SESSION && SESSION.role === "ogr") {
+    yenile();
+    return;
+  }
   if (SESSION && SESSION.role !== "koc") return;
   if (DEMO_MODE) {
     if (showToastMsg) toast("✅ Demo modda senkronizasyon gerekmez");
