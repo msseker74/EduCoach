@@ -512,23 +512,21 @@ let DEMO_MODE = false;
 // ═══════════════════════════════════════════════════════════
 const GAS_URL = "https://script.google.com/macros/s/AKfycbyNEH-LZ8WhpTLqYvusQ-FqtnmxWT7pFNxRGcdFwmeMOD6oYdmT2fzhYjfY5A4rgxiU/exec";
 
+// ═══════════════════════════════════════════════════════════
+//  GAS ÇAĞRI KATMANI — Güvenilir JSONP + otomatik retry
+//  Sorun: JSONP <script> tag'i DOM yenilenince kaybolabiliyordu.
+//  Çözüm: script'i document.body'ye ekle, 20s timeout, 1 retry.
+// ═══════════════════════════════════════════════════════════
 function gasCall(action, params, onSuccess, onFailure) {
   var payload = JSON.stringify({ action: action, params: params || {} });
 
-  // Büyük veri (topluGuncelle, topluKonuEkle) → JSONP GET ile
-  // Küçük veri → fetch POST ile (no-cors olmaz, Apps Script CORS başlığı eklemez)
-  // Çözüm: Tüm çağrılar JSONP ile gider, büyük veri parçalanır
-
-  // topluGuncelle ve topluKonuEkle için sadece kritik değişiklikleri gönder
-  // Diğer tüm çağrılar JSONP GET ile
-  var cbName = "cb_" + Math.random().toString(36).slice(2);
+  // Büyük veri (topluGuncelle, topluKonuEkle) → fetch POST ile dene
   var paramsStr = encodeURIComponent(JSON.stringify(params || {}));
+  var cbName = "cb_" + Math.random().toString(36).slice(2);
   var url = GAS_URL + "?action=" + encodeURIComponent(action) +
-            "&params=" + paramsStr +
-            "&callback=" + cbName;
+            "&params=" + paramsStr + "&callback=" + cbName;
 
-  // URL çok uzunsa (topluGuncelle) fetch ile dene, hata alırsa JSONP
-  if (url.length > 7000) {
+  if (url.length > 6000) {
     fetch(GAS_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
@@ -537,45 +535,65 @@ function gasCall(action, params, onSuccess, onFailure) {
     .then(function(r) { return r.json(); })
     .then(function(data) { if (onSuccess) onSuccess(data); })
     .catch(function() {
-      // POST başarısız olursa JSONP dene (veri kesilebilir)
-      gasCallJSONP(action, params, onSuccess, onFailure);
+      // POST başarısız → JSONP ile dene
+      gasCallJSONP(action, params, onSuccess, onFailure, false);
     });
     return;
   }
 
-  gasCallJSONP(action, params, onSuccess, onFailure);
+  gasCallJSONP(action, params, onSuccess, onFailure, false);
 }
 
-function gasCallJSONP(action, params, onSuccess, onFailure) {
+function gasCallJSONP(action, params, onSuccess, onFailure, isRetry) {
   var cbName = "cb_" + Math.random().toString(36).slice(2);
   var url = GAS_URL + "?action=" + encodeURIComponent(action) +
             "&params=" + encodeURIComponent(JSON.stringify(params || {})) +
             "&callback=" + cbName;
 
+  // Script'i body'ye ekle (DOM yenilenince kaybolmaz)
   var script = document.createElement("script");
+  script.async = true;
+
+  var done = false;
   var timer = setTimeout(function() {
+    if (done) return;
+    done = true;
     cleanup();
-    if (onFailure) onFailure(new Error("Zaman aşımı (15s)"));
-  }, 15000);
+    if (!isRetry) {
+      // Bir kez otomatik retry
+      gasCallJSONP(action, params, onSuccess, onFailure, true);
+    } else {
+      if (onFailure) onFailure(new Error("Zaman aşımı (20s × 2 deneme)"));
+    }
+  }, 20000);
 
   function cleanup() {
     clearTimeout(timer);
     delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
+    try { if (script.parentNode) script.parentNode.removeChild(script); } catch(e) {}
   }
 
   window[cbName] = function(data) {
+    if (done) return;
+    done = true;
     cleanup();
     if (onSuccess) onSuccess(data);
   };
 
   script.onerror = function() {
+    if (done) return;
+    done = true;
     cleanup();
-    if (onFailure) onFailure(new Error("Bağlantı hatası"));
+    if (!isRetry) {
+      gasCallJSONP(action, params, onSuccess, onFailure, true);
+    } else {
+      if (onFailure) onFailure(new Error("Bağlantı hatası (2 deneme)"));
+    }
   };
 
   script.src = url;
-  document.head.appendChild(script);
+  // body'e ekle — head'e değil. DOM render'ından etkilenmez.
+  (document.body || document.head).appendChild(script);
 }
 
 
@@ -3408,33 +3426,54 @@ function odevKaydet(id) {
       o.konu === data.konu && 
       o.tarih === data.tarih
     );
-    
     if (ayniOgrAyniKonu) {
       toast("⚠️ Bu öğrenci için aynı ders/konu/tarihte ödev zaten mevcut!", true);
       return;
     }
   }
 
-  if (id) {
-    DB.odevler = DB.odevler.map(o => o.id === id ? parseOdev(data) : o);
-  } else {
-    DB.odevler.push(parseOdev(data));
-  }
-
-  if (!DEMO_MODE) {
-    gasCall("hizliOdevKaydet", data, function(result) {
-      if (result && result.success) {
-        toast("✅ " + (result.mesaj || "Ödev kaydedildi!"));
-      } else {
-        toast("❌ " + ((result && result.error) || "Kayıt hatası"), true);
-      }
-    }, function() { toast("❌ Bağlantı hatası", true); });
-  } else {
+  // DEMO mod: anında kaydet ve kapat
+  if (DEMO_MODE) {
+    if (id) {
+      DB.odevler = DB.odevler.map(o => o.id === id ? parseOdev(data) : o);
+    } else {
+      DB.odevler.push(parseOdev(data));
+    }
     toast("✅ Ödev başarıyla kaydedildi!");
+    setTab(aktifTab === "plan" ? "plan" : "odevler");
+    modalKapat();
+    return;
   }
 
-  setTab(aktifTab === "plan" ? "plan" : "odevler");
-  modalKapat();
+  // ── GERÇEK MOD: Önce Sheets'e yaz, sonra kapat ──
+  // Kaydet butonunu devre dışı bırak (çift tıklamayı önle)
+  const kaydetBtn = document.querySelector('#modalArea .btn-primary');
+  if (kaydetBtn) { kaydetBtn.disabled = true; kaydetBtn.textContent = "⏳ Kaydediliyor..."; }
+
+  syncStart();
+  gasCall("hizliOdevKaydet", data, function(result) {
+    syncEnd();
+    if (kaydetBtn) { kaydetBtn.disabled = false; kaydetBtn.textContent = "💾 " + (id ? "Güncelle" : "Kaydet"); }
+
+    if (result && result.success) {
+      // Sheets onayladı → şimdi local DB'ye yaz ve kapat
+      if (id) {
+        DB.odevler = DB.odevler.map(o => o.id === id ? parseOdev(data) : o);
+      } else {
+        DB.odevler.push(parseOdev(data));
+      }
+      toast("✅ " + (result.mesaj || "Ödev kaydedildi!"));
+      setTab(aktifTab === "plan" ? "plan" : "odevler");
+      modalKapat();
+    } else {
+      // Sheets hata verdi → modal açık kalsın, kullanıcı tekrar deneyebilsin
+      toast("❌ Sheets'e kayıt başarısız: " + ((result && result.error) || "Bilinmeyen hata") + " — Lütfen tekrar deneyin.", true);
+    }
+  }, function(err) {
+    syncEnd();
+    if (kaydetBtn) { kaydetBtn.disabled = false; kaydetBtn.textContent = "💾 " + (id ? "Güncelle" : "Kaydet"); }
+    toast("❌ Bağlantı hatası: " + (err ? err.message : "Bilinmeyen") + " — Modal açık bırakıldı, tekrar deneyin.", true);
+  });
 }
 
 // ✨ GÜNCELLENDİ: Silme işlemi mesajı eklendi
