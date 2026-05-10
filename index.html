@@ -3918,28 +3918,36 @@ function ogrOdevTeslimEt(id) {
     };
   }
 
-  DB.odevler = DB.odevler.map(x => x.id === id ? parseOdev(updated) : x);
-  modalKapat();
-  setTabOgr("odevlerim");
-  toast(isEtkinlik ? "🎨 Etkinlik teslim edildi!" : "📤 Ödev teslim edildi!");
-  // Öğrenci tesliminde Sheets'e doğrudan kaydet
-  if (!DEMO_MODE) {
-    syncStart();
-    gasCall("ogrenciOdevGuncelle", updated, function(result) {
-      syncEnd();
-      if (result && result.success) {
-        console.log("✅ Ödev teslimi Sheets'e kaydedildi: " + id);
-        toast("✅ Ödev teslim edildi ve kaydedildi!");
-      } else {
-        console.error("❌ Sheets kayıt hatası:", result ? result.error : "Bilinmeyen");
-        toast("⚠️ Sheets kaydı başarısız: " + (result ? result.error : "Bilinmeyen hata"), true);
-      }
-    }, function(e) {
-      syncEnd();
-      console.error("❌ Sheets bağlantı hatası:", e.message);
-      toast("⚠️ Sheets bağlantı hatası: " + e.message, true);
-    });
+  // DEMO mod: anında kaydet
+  if (DEMO_MODE) {
+    DB.odevler = DB.odevler.map(x => x.id === id ? parseOdev(updated) : x);
+    modalKapat();
+    setTabOgr("odevlerim");
+    toast(isEtkinlik ? "🎨 Etkinlik teslim edildi!" : "📤 Ödev teslim edildi!");
+    return;
   }
+
+  // GERÇEK MOD: Önce Sheets'e yaz, sonra kapat
+  const teslimBtn = document.querySelector('#modalArea .btn-primary');
+  if (teslimBtn) { teslimBtn.disabled = true; teslimBtn.textContent = "⏳ Kaydediliyor..."; }
+
+  syncStart();
+  gasCall("ogrenciOdevGuncelle", updated, function(result) {
+    syncEnd();
+    if (teslimBtn) { teslimBtn.disabled = false; teslimBtn.textContent = "📤 Teslim Et"; }
+    if (result && result.success) {
+      DB.odevler = DB.odevler.map(x => x.id === id ? parseOdev(updated) : x);
+      modalKapat();
+      setTabOgr("odevlerim");
+      toast(isEtkinlik ? "🎨 Etkinlik teslim edildi ve kaydedildi!" : "✅ Ödev teslim edildi ve kaydedildi!");
+    } else {
+      toast("❌ Sheets kaydı başarısız: " + (result ? result.error : "Bilinmeyen hata") + " — Lütfen tekrar deneyin.", true);
+    }
+  }, function(e) {
+    syncEnd();
+    if (teslimBtn) { teslimBtn.disabled = false; teslimBtn.textContent = "📤 Teslim Et"; }
+    toast("❌ Bağlantı hatası: " + e.message + " — Tekrar deneyin.", true);
+  });
 }
 
 function ogrTeslimGeriAl(id) {
@@ -3947,19 +3955,26 @@ function ogrTeslimGeriAl(id) {
   if (!a) return;
   confirm2("Teslimi geri almak istediğine emin misin?", function() {
     const updated = { ...a, durum: "pending", not: "" };
-    DB.odevler = DB.odevler.map(x => x.id === id ? parseOdev(updated) : x);
-    setTabOgr("odevlerim");
-    toast("↩️ Teslim geri alındı");
-    // Öğrenci geri alımında Sheets'e doğrudan kaydet
-    if (!DEMO_MODE) {
-      gasCall("ogrenciOdevGuncelle", updated, function(result) {
-        if (!result || !result.success) {
-          toast("⚠️ Sheets kaydı başarısız: " + (result ? result.error : "Bilinmeyen hata"), true);
-        }
-      }, function(e) {
-        toast("⚠️ Sheets bağlantı hatası: " + e.message, true);
-      });
+    if (DEMO_MODE) {
+      DB.odevler = DB.odevler.map(x => x.id === id ? parseOdev(updated) : x);
+      setTabOgr("odevlerim");
+      toast("↩️ Teslim geri alındı");
+      return;
     }
+    syncStart();
+    gasCall("ogrenciOdevGuncelle", updated, function(result) {
+      syncEnd();
+      if (result && result.success) {
+        DB.odevler = DB.odevler.map(x => x.id === id ? parseOdev(updated) : x);
+        setTabOgr("odevlerim");
+        toast("↩️ Teslim geri alındı ve kaydedildi.");
+      } else {
+        toast("⚠️ Sheets kaydı başarısız: " + (result ? result.error : "Bilinmeyen hata"), true);
+      }
+    }, function(e) {
+      syncEnd();
+      toast("⚠️ Bağlantı hatası: " + e.message, true);
+    });
   });
 }
 
