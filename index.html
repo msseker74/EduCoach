@@ -3144,10 +3144,13 @@ function renderOgrHaftalikPlan(el, ogrId) {
         const isPast = gun < today;
         const gunAdi = DAYS_FULL[new Date(gun).getDay()];
         
-        const tamamlanan = gunOdevler.filter(a => a.durum !== "pending").reduce((s, a) => s + (a.cozulen || 0), 0);
+        const toplamOdev = gunOdevler.length;
+        const tamamlananOdev = gunOdevler.filter(a => a.durum !== "pending").length;
+        // İlerleme: teslim edilen ödev adedi / toplam ödev adedi (koç paneli ile tutarlı)
+        const ilerlemeYuzde = toplamOdev > 0 ? Math.round((tamamlananOdev / toplamOdev) * 100) : 0;
+        // Soru istatistikleri (kart içinde gösterim için)
         const toplamSoru = gunOdevler.reduce((s, a) => s + (a.verilen || 0), 0);
         const tamamlananSoru = gunOdevler.filter(a => a.durum !== "pending").reduce((s, a) => s + (a.cozulen || 0), 0);
-        const ilerlemeYuzde = toplamSoru > 0 ? Math.round((tamamlananSoru / toplamSoru) * 100) : 0;
         
         return `
           <div class="kanban-col ${isToday ? 'today' : ''}" style="min-height:200px">
@@ -3156,7 +3159,7 @@ function renderOgrHaftalikPlan(el, ogrId) {
               <div style="font-size:13px">${gun.slice(5)}</div>
             </div>
             
-            ${toplamSoru > 0 ? `
+            ${toplamOdev > 0 ? `
               <div style="margin-bottom:8px; padding:4px 8px; background:#0d1117; border-radius:6px">
                 <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:2px">
                   <span style="color:#94a3b8">İlerleme</span>
