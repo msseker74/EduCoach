@@ -1199,6 +1199,36 @@ function otomatikSenkronizasyonuBaslat() {
         }, function() {});
     }
   }, 45 * 1000);
+
+  // Öğrenci: 60 sn'de bir Sheets'ten veri çek — koçun değerlendirmelerini otomatik göster
+  setInterval(function() {
+    if (SESSION && SESSION.role === "ogr" && !DEMO_MODE) {
+      gasCall("getData", {}, function(r) {
+        if (!r || !r.odevler) return;
+        var benim = SESSION.id;
+        // Sadece bu öğrencinin ödevlerini güncelle
+        var eskiOdevler = DB.odevler.filter(function(o) { return o.studentId === benim; });
+        var yeniOdevler = r.odevler.map(parseOdev).filter(function(o) { return o.studentId === benim; });
+        // Değişen ödev var mı kontrol et
+        var degisiklikVar = yeniOdevler.some(function(yeni) {
+          var eski = eskiOdevler.find(function(e) { return e.id === yeni.id; });
+          return !eski || eski.durum !== yeni.durum || eski.kocNot !== yeni.kocNot || eski.kocPuan !== yeni.kocPuan;
+        });
+        if (degisiklikVar) {
+          // Tüm DB'yi güncelle (hedefler, sinavlar da gelebilir)
+          DB.odevler = r.odevler.map(parseOdev);
+          if (r.hedefler) DB.hedefler = r.hedefler;
+          if (r.sinavlar) DB.sinavlar = r.sinavlar;
+          if (r.gunluk) DB.gunluk = r.gunluk;
+          toast("🔄 Koç değerlendirmesi güncellendi!");
+          // Aktif sekmeyi yenile
+          if (aktifTabOgr === "odevlerim" || aktifTabOgr === "haftalikplanim" || aktifTabOgr === "analizim") {
+            setTabOgr(aktifTabOgr);
+          }
+        }
+      }, function() {}); // sessiz hata — bağlantı yoksa tekrar dener
+    }
+  }, 60 * 1000);
 }
 
 window.addEventListener('beforeunload', function() {
