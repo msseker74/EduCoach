@@ -610,6 +610,36 @@ let ogrAnalizTipi = "odev"; // Öğrenci analiz tipi
 // Yardımcı fonksiyonlar
 const gc = s => SC[s] || "#8ec6ae";
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+// Kitap adından yayınevi bul
+function kitapYayinevi(kitapAdi) {
+  if (!kitapAdi || !KAYNAKLAR.kitaplar) return "";
+  const k = KAYNAKLAR.kitaplar.find(k => k.ad === kitapAdi);
+  return k ? (k.yayinevi || "") : "";
+}
+
+// Kaynak HTML üret (tüm kartlarda tutarlı)
+function kaynakBadge(kitapAdi, sayfaNo, kucuk) {
+  if (!kitapAdi) return "";
+  const yayinevi = kitapYayinevi(kitapAdi);
+  if (kucuk) {
+    // Kanban kartı için küçük versiyon
+    return `<div style="font-size:9px;color:#a78bfa;margin-top:3px;display:flex;align-items:center;gap:3px;background:#1a1f36;padding:2px 5px;border-radius:4px;flex-wrap:wrap">
+      <span>📚</span>
+      ${yayinevi ? `<span style="color:#f59e0b;font-weight:700">${yayinevi}</span><span style="color:#334155">·</span>` : ""}
+      <span style="font-weight:600">${kitapAdi.length > 18 ? kitapAdi.slice(0,16)+'…' : kitapAdi}</span>
+      ${sayfaNo ? `<span style="color:#7c3aed;font-weight:700">sf.${sayfaNo}</span>` : ""}
+    </div>`;
+  } else {
+    // Liste kartı için tam versiyon
+    return `<div style="font-size:11px;color:#a78bfa;margin-top:4px;display:flex;align-items:center;gap:6px;background:#1a1f36;border:1px solid #7c3aed33;padding:4px 10px;border-radius:6px;width:fit-content;flex-wrap:wrap">
+      <span>📚</span>
+      ${yayinevi ? `<span style="color:#f59e0b;font-weight:800;background:#2d1e08;padding:1px 6px;border-radius:4px">${yayinevi}</span>` : ""}
+      <span style="font-weight:700">${kitapAdi}</span>
+      ${sayfaNo ? `<span style="color:#a78bfa">·</span><span style="color:#7c3aed;background:#2d1e4a;padding:2px 8px;border-radius:4px;font-weight:800">sf. ${sayfaNo}</span>` : ""}
+    </div>`;
+  }
+}
 const bugun = () => new Date().toISOString().slice(0, 10);
 const fmt = d => d ? String(d).slice(0, 10) : "";
 const numFmt = n => isNaN(Number(n)) ? 0 : Number(n);
@@ -1600,12 +1630,7 @@ function renderPlan(el, ogrs, odevler) {
             const isOverdue = a.durum === "pending" && isPast;
             
             // Kaynak ve sayfa bilgisi
-            const kaynakHtml = a.kaynakKitap ? 
-              `<div style="font-size:9px; color:#a78bfa; margin-top:3px; display:flex; align-items:center; gap:3px; background:#1a1f36; padding:2px 5px; border-radius:4px;">
-                <span>📚</span>
-                <span style="font-weight:600">${a.kaynakKitap.length > 20 ? a.kaynakKitap.slice(0,18)+'…' : a.kaynakKitap}</span>
-                ${a.sayfaNo ? `<span style="color:#7c3aed; font-weight:700">sf.${a.sayfaNo}</span>` : ''}
-              </div>` : '';
+            const kaynakHtml = kaynakBadge(a.kaynakKitap, a.sayfaNo, true);
               
             // Kart arka planı ve kenarlık: durum öncelikli
             const cardBg = isOverdue             ? "#1f1215"
@@ -1722,12 +1747,7 @@ function _filterOdevlerImpl() {
     const net = a.cozulen > 0 ? (a.dogru - a.yanlis * 0.25).toFixed(2) : null;
     const isEtkinlik = a.odevTipi === "etkinlik";
     
-    const kaynakHtml = a.kaynakKitap ? 
-      `<div style="font-size:11px; color:#a78bfa; margin-top:4px; display:flex; align-items:center; gap:6px; background:#1a1f36; border:1px solid #7c3aed33; padding:4px 10px; border-radius:6px; width:fit-content">
-        <span>📚</span>
-        <span style="font-weight:700">${a.kaynakKitap}</span>
-        ${a.sayfaNo ? `<span style="color:#a78bfa">·</span><span style="color:#7c3aed; background:#2d1e4a; padding:2px 8px; border-radius:4px; font-weight:800">sf. ${a.sayfaNo}</span>` : ''}
-      </div>` : '';
+    const kaynakHtml = kaynakBadge(a.kaynakKitap, a.sayfaNo, false);
 
     const yonergeHtml = isEtkinlik && a.not ?
       `<div style="margin-top:4px;font-size:11px;color:#fcd34d;background:#2d1e08;padding:4px 8px;border-radius:6px;border-left:2px solid #f59e0b">📋 ${a.not}</div>` : '';
@@ -2539,12 +2559,7 @@ function ogrOdevKarti(a, canSubmit, canRetract) {
   const net = a.cozulen > 0 ? (a.dogru - a.yanlis * 0.25).toFixed(2) : null;
   const isEtkinlik = a.odevTipi === "etkinlik";
   
-  const kaynakHtml = a.kaynakKitap ? 
-    `<div style="font-size:11px; color:#a78bfa; margin-top:4px; display:flex; align-items:center; gap:6px; background:#1a1f36; border:1px solid #7c3aed33; padding:4px 10px; border-radius:6px; width:fit-content">
-      <span>📚</span>
-      <span style="font-weight:700">${a.kaynakKitap}</span>
-      ${a.sayfaNo ? `<span style="color:#a78bfa">·</span><span style="color:#7c3aed; background:#2d1e4a; padding:2px 8px; border-radius:4px; font-weight:800">sf. ${a.sayfaNo}</span>` : ''}
-    </div>` : '';
+  const kaynakHtml = kaynakBadge(a.kaynakKitap, a.sayfaNo, false);
 
   const yonergeHtml = isEtkinlik && a.not ? 
     `<div style="margin-top:5px;background:#2d1e08;border:1px solid #f59e0b44;border-left:3px solid #f59e0b;border-radius:7px;padding:7px 10px">
@@ -3181,12 +3196,7 @@ function renderOgrHaftalikPlan(el, ogrId) {
               const net = a.cozulen > 0 ? (a.dogru - a.yanlis * 0.25).toFixed(1) : null;
               
               // Kaynak ve sayfa bilgisi
-              const kaynakHtml = a.kaynakKitap ? 
-                `<div style="font-size:9px; color:#a78bfa; margin-top:3px; display:flex; align-items:center; gap:3px; background:#1a1f36; padding:2px 5px; border-radius:4px;">
-                  <span>📚</span>
-                  <span style="font-weight:600">${a.kaynakKitap.length > 20 ? a.kaynakKitap.slice(0,18)+'…' : a.kaynakKitap}</span>
-                  ${a.sayfaNo ? `<span style="color:#7c3aed; font-weight:700">sf.${a.sayfaNo}</span>` : ''}
-                </div>` : '';
+              const kaynakHtml = kaynakBadge(a.kaynakKitap, a.sayfaNo, true);
                 
               return `
                 <div class="kanban-card ${isOverdue ? 'overdue' : ''}" 
