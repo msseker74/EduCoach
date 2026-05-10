@@ -1572,9 +1572,20 @@ function renderPlan(el, ogrs, odevler) {
                 ${a.sayfaNo ? `<span style="color:#a78bfa">· sf. ${a.sayfaNo}</span>` : ''}
               </div>` : '';
               
+            // Kart arka planı ve kenarlık: durum öncelikli
+            const cardBg = isOverdue             ? "#1f1215"
+                         : a.durum === "reviewed"  ? "#0d1f14"
+                         : a.durum === "submitted" ? "#0d1526"
+                         : "";
+            const cardBorderColor = isOverdue             ? "#f87171"
+                                  : a.durum === "reviewed"  ? "#4ade80"
+                                  : a.durum === "submitted" ? "#60a5fa"
+                                  : gc(a.ders);
+            const durumIkon = isOverdue ? "⚠️" : a.durum === "reviewed" ? "✅" : a.durum === "submitted" ? "📬" : "";
+
             return `<div class="kanban-card${isOverdue ? " overdue" : ""}" onclick='modalOdevEkle("${a.id}")'
-              style="border-left-color:${isOverdue ? "#f87171" : gc(a.ders)}">
-              <div style="font-weight:800;font-size:11px;margin-bottom:2px">${a.konu.length > 18 ? a.konu.slice(0,16)+"…" : a.konu}</div>
+              style="border-left-color:${cardBorderColor};${cardBg ? "background:" + cardBg + ";" : ""}">
+              <div style="font-weight:800;font-size:11px;margin-bottom:2px">${durumIkon ? durumIkon + " " : ""}${a.konu.length > 18 ? a.konu.slice(0,16)+"…" : a.konu}</div>
               <div style="font-size:10px;color:#475569">${ogr ? ogr.ad.split(" ")[0] : ""}</div>
               ${kaynakHtml}
               <div style="display:flex;justify-content:space-between;margin-top:3px">
